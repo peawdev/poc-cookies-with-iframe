@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Iframe Cookie Receiver</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 20px;
+      border-radius: 12px;
+      backdrop-filter: blur(10px);
+    }
+    h1 {
+      margin-top: 0;
+    }
+    .info-box {
+      background: rgba(255, 255, 255, 0.2);
+      padding: 15px;
+      border-radius: 8px;
+      margin: 10px 0;
+    }
+    .cookies-list {
+      background: rgba(255, 255, 255, 0.2);
+      padding: 15px;
+      border-radius: 8px;
+      margin: 10px 0;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .cookie-item {
+      background: rgba(255, 255, 255, 0.3);
+      padding: 10px;
+      margin: 5px 0;
+      border-radius: 6px;
+    }
+    .btn {
+      background: #28a745;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 5px;
+    }
+    .btn:hover {
+      background: #218838;
+    }
+    .btn-secondary {
+      background: #6c757d;
+    }
+    .btn-secondary:hover {
+      background: #545b62;
+    }
+    .status {
+      padding: 5px 10px;
+      border-radius: 4px;
+      display: inline-block;
+      margin-left: 10px;
+    }
+    .status.success {
+      background: #28a745;
+    }
+    .status.error {
+      background: #dc3545;
+    }
+    .status.info {
+      background: #17a2b8;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🍪 Iframe Cookie Receiver</h1>
+    
+    <div class="info-box">
+      <strong>Current Domain:</strong> <span id="currentDomain">-</span><br>
+      <strong>Parent Origin:</strong> <span id="parentOrigin">-</span><br>
+      <strong>Status:</strong> <span id="status" class="status info">รอรับข้อมูล...</span>
+    </div>
+
+    <div>
+      <button class="btn" onclick="requestCookiesFromParent()">ขอ Cookies จาก Parent</button>
+      <button class="btn btn-secondary" onclick="sendTestMessage()">ส่งข้อความทดสอบ</button>
+      <button class="btn btn-secondary" onclick="showLocalCookies()">ดู Local Cookies</button>
+    </div>
+
+    <h2>Cookies ที่ได้รับจาก Parent:</h2>
+    <div id="receivedCookies" class="cookies-list">
+      <p>ยังไม่มีข้อมูล</p>
+    </div>
+
+    <h2>Message Log:</h2>
+    <div id="messageLog" class="cookies-list">
+      <p>ยังไม่มี message</p>
+    </div>
+  </div>
+
+  <script>
+    // แสดง domain ปัจจุบัน
+    document.getElementById('currentDomain').textContent = window.location.hostname;
+
+    // ฟัง message จาก parent window
+    window.addEventListener('message', (event) => {
+      // แสดง parent origin
+      document.getElementById('parentOrigin').textContent = event.origin;
+      
+      // Log message
+      logMessage('Received', event.data);
+
+      // จัดการ message ตามประเภท
+      switch (event.data.type) {
+        case 'SEND_COOKIES':
+          handleReceivedCookies(event.data.cookies);
+          break;
+          
+        case 'COOKIES_RESPONSE':
+          handleReceivedCookies(event.data.cookies);
+          break;
+          
+        case 'GET_COOKIES_REQUEST':
+          sendLocalCookies(event);
+          break;
+          
+        default:
+          logMessage('Unknown type', event.data);
+      }
+    });
+
+    // จัดการ cookies ที่ได้รับ
+    function handleReceivedCookies(cookies) {
+      const container = document.getElementById('receivedCookies');
+      const statusEl = document.getElementById('status');
+      
+      if (!cookies || cookies.length === 0) {
+        container.innerHTML = '<p>ไม่มี cookies</p>';
+        statusEl.textContent = 'ไม่มี cookies';
+        statusEl.className = 'status error';
+        return;
+      }
+
+      let html = '';
+      cookies.forEach((cookie, index) => {
+        html += `
+          <div class="cookie-item">
+            <strong>${index + 1}. ${cookie.name}</strong> = ${cookie.value}<br>
+            <small>Domain: ${cookie.domain || 'N/A'} | Path: ${cookie.path || '/'} | SameSite: ${cookie.sameSite || 'Lax'}</small>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+      statusEl.textContent = `ได้รับ ${cookies.length} cookies`;
+      statusEl.className = 'status success';
+
+      // ส่งการยืนยันกลับไปยัง parent
+      if (window.parent) {
+        window.parent.postMessage({
+          type: 'COOKIES_RECEIVED',
+          source: 'iframe',
+          count: cookies.length,
+          timestamp: Date.now()
+        }, '*');
+      }
+    }
+
+    // ขอ cookies จาก parent
+    function requestCookiesFromParent() {
+      if (window.parent) {
+        window.parent.postMessage({
+          type: 'REQUEST_COOKIES',
+          source: 'iframe',
+          timestamp: Date.now()
+        }, '*');
+        
+        logMessage('Sent', { type: 'REQUEST_COOKIES' });
+        
+        const statusEl = document.getElementById('status');
+        statusEl.textContent = 'กำลังขอ cookies...';
+        statusEl.className = 'status info';
+      }
+    }
+
+    // ส่ง local cookies กลับไปยัง parent
+    function sendLocalCookies(event) {
+      const localCookies = document.cookie;
+      
+      event.source.postMessage({
+        type: 'GET_COOKIES_RESPONSE',
+        source: 'iframe',
+        cookies: localCookies,
+        timestamp: Date.now()
+      }, event.origin);
+      
+      logMessage('Sent local cookies', { cookies: localCookies });
+    }
+
+    // แสดง local cookies
+    function showLocalCookies() {
+      const localCookies = document.cookie;
+      
+      if (!localCookies) {
+        alert('ไม่มี local cookies ใน iframe นี้');
+        return;
+      }
+
+      const cookies = localCookies.split(';').map(c => {
+        const [name, value] = c.trim().split('=');
+        return { name, value };
+      });
+
+      alert(`Local Cookies (${cookies.length} รายการ):\n\n${cookies.map(c => `${c.name} = ${c.value}`).join('\n')}`);
+    }
+
+    // ส่งข้อความทดสอบ
+    function sendTestMessage() {
+      if (window.parent) {
+        window.parent.postMessage({
+          type: 'TEST_MESSAGE',
+          source: 'iframe',
+          message: 'Hello from iframe!',
+          timestamp: Date.now()
+        }, '*');
+        
+        logMessage('Sent test message', { type: 'TEST_MESSAGE' });
+      }
+    }
+
+    // Log message
+    function logMessage(direction, data) {
+      const logContainer = document.getElementById('messageLog');
+      const timestamp = new Date().toLocaleTimeString('th-TH');
+      
+      const logItem = document.createElement('div');
+      logItem.className = 'cookie-item';
+      logItem.innerHTML = `
+        <strong>[${timestamp}] ${direction}:</strong><br>
+        <pre>${JSON.stringify(data, null, 2)}</pre>
+      `;
+      
+      logContainer.insertBefore(logItem, logContainer.firstChild);
+    }
+
+    // ส่งข้อความ ready เมื่อโหลดเสร็จ
+    window.addEventListener('load', () => {
+      if (window.parent) {
+        window.parent.postMessage({
+          type: 'IFRAME_READY',
+          source: 'iframe',
+          timestamp: Date.now()
+        }, '*');
+        
+        logMessage('Sent', { type: 'IFRAME_READY' });
+      }
+    });
+  </script>
+</body>
+</html>
