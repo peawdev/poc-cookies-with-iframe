@@ -64,6 +64,10 @@
         <div class="info-item" v-if="sentCookies.length > 0">
           <strong>Cookies ที่ส่ง:</strong> {{ sentCookies.length }} รายการ
         </div>
+        <div class="info-item">
+          <strong>Auto Send:</strong> 
+          <span class="status success">เปิดใช้งาน</span>
+        </div>
       </div>
 
       <!-- Cookie Management Panel -->
@@ -280,6 +284,11 @@ export default {
       connectionStatus.value = { text: 'เชื่อมต่อสำเร็จ', class: 'success' }
       extractIframeDomain()
       console.log('Iframe loaded successfully:', iframeUrl.value)
+      
+      // ส่ง cookies อัตโนมัติเมื่อ iframe โหลดเสร็จ
+      setTimeout(() => {
+        autoSendCookiesToIframe()
+      }, 1000) // รอ 1 วินาทีเพื่อให้ iframe พร้อมรับ message
     }
 
     // แยก domain จาก URL
@@ -692,6 +701,52 @@ export default {
       }
     }
 
+    // ส่ง cookies อัตโนมัติเมื่อ iframe โหลดเสร็จ
+    const autoSendCookiesToIframe = () => {
+      try {
+        if (!testIframe.value) {
+          console.log('No iframe found for auto-send')
+          return
+        }
+
+        // เตรียม cookies ที่จะส่ง
+        const cookiesToSend = prepareCookiesForIframe()
+        
+        if (cookiesToSend.length === 0) {
+          console.log('No cookies to send')
+          postMessageStatus.value = { text: 'ไม่มี cookies', class: 'info' }
+          return
+        }
+        
+        // ส่ง cookies ผ่าน postMessage
+        const message = {
+          type: 'SEND_COOKIES',
+          source: 'parent',
+          cookies: cookiesToSend,
+          timestamp: Date.now(),
+          autoSend: true
+        }
+
+        testIframe.value.contentWindow.postMessage(message, '*')
+        
+        postMessageStatus.value = { text: 'ส่งอัตโนมัติ...', class: 'loading' }
+        sentCookies.value = cookiesToSend
+        
+        console.log('Auto-sending cookies to iframe:', message)
+        
+        // รีเซ็ตสถานะหลังจาก 3 วินาที
+        setTimeout(() => {
+          if (postMessageStatus.value.text === 'ส่งอัตโนมัติ...') {
+            postMessageStatus.value = { text: 'ส่งอัตโนมัติเรียบร้อย', class: 'success' }
+          }
+        }, 3000)
+        
+      } catch (error) {
+        console.error('Error auto-sending cookies to iframe:', error)
+        postMessageStatus.value = { text: 'ส่งอัตโนมัติล้มเหลว', class: 'error' }
+      }
+    }
+
     // เตรียม cookies สำหรับส่งไปยัง iframe
     const prepareCookiesForIframe = () => {
       try {
@@ -736,13 +791,30 @@ export default {
 
         switch (event.data.type) {
           case 'COOKIES_RECEIVED':
-            postMessageStatus.value = { text: 'iframe ได้รับ cookies', class: 'success' }
+            if (event.data.autoSend) {
+              postMessageStatus.value = { text: 'iframe ได้รับ cookies (อัตโนมัติ)', class: 'success' }
+            } else {
+              postMessageStatus.value = { text: 'iframe ได้รับ cookies', class: 'success' }
+            }
             console.log('Iframe confirmed receipt of cookies')
             break
             
           case 'COOKIES_ERROR':
-            postMessageStatus.value = { text: 'iframe ไม่สามารถรับ cookies', class: 'error' }
+            if (event.data.autoSend) {
+              postMessageStatus.value = { text: 'iframe ไม่สามารถรับ cookies (อัตโนมัติ)', class: 'error' }
+            } else {
+              postMessageStatus.value = { text: 'iframe ไม่สามารถรับ cookies', class: 'error' }
+            }
             console.error('Iframe reported error:', event.data.error)
+            break
+            
+          case 'IFRAME_READY':
+            postMessageStatus.value = { text: 'iframe พร้อมรับ cookies', class: 'success' }
+            console.log('Iframe is ready to receive cookies')
+            // ส่ง cookies ทันทีเมื่อ iframe พร้อม
+            setTimeout(() => {
+              autoSendCookiesToIframe()
+            }, 500)
             break
             
           case 'REQUEST_COOKIES':
@@ -829,6 +901,7 @@ export default {
       closeIframeCookiesModal,
       refreshIframeCookies,
       sendCookiesToIframe,
+      autoSendCookiesToIframe,
       prepareCookiesForIframe,
       handleIframeMessage
     }
@@ -1303,6 +1376,28 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.status {
+  padding: 5px 10px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-left: 10px;
+  color: white;
+  font-weight: 500;
+}
+.status.success {
+  background: #28a745;
+}
+.status.error {
+  background: #dc3545;
+}
+.status.info {
+  background: #17a2b8;
+}
+.status.loading {
+  background: #ffc107;
+  color: #212529;
 }
 
 @media (max-width: 1200px) {
